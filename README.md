@@ -1,6 +1,6 @@
 # Task API
 
-A SQLite-backed CRUD API for managing a persistent to-do list.
+A Dockerized Express CRUD API backed by PostgreSQL.
 
 The project was built with Node.js and Express as part of the FlyRank Backend AI Engineering internship assignment.
 
@@ -24,8 +24,10 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 
 - Node.js
 - Express
-- SQLite
-- better-sqlite3
+- PostgreSQL
+- `pg`
+- Docker
+- Docker Compose
 - Swagger UI
 - OpenAPI 3.0
 
@@ -294,3 +296,146 @@ container so that rows can survive container restarts.
 
 The application is not connected to PostgreSQL yet. The connection and table
 setup are implemented in the next stage.
+
+## Docker Compose stack
+
+The application and PostgreSQL database can be started together with one
+command:
+
+```bash
+docker compose up --build
+```
+
+To run the stack in the background:
+
+```bash
+docker compose up --build -d
+```
+
+The API is available at:
+
+```text
+http://localhost:3000
+```
+
+Swagger UI is available at:
+
+```text
+http://localhost:3000/docs
+```
+
+The running services can be inspected with:
+
+```bash
+docker compose ps
+```
+
+![Docker Compose stack](./screenshots/docker-compose-stack.png)
+
+## Environment variables
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The local Node.js connection uses:
+
+```env
+DATABASE_URL=postgres://postgres:dev@localhost:5432/tasks
+```
+
+Inside Docker Compose, the application connects to the database service by
+its Compose service name:
+
+```env
+DOCKER_DATABASE_URL=postgres://postgres:dev@db:5432/tasks
+```
+
+The real `.env` file is ignored by Git. Only `.env.example` is committed.
+
+## Repository architecture
+
+The API routes and their HTTP behaviour did not change when the storage layer
+was switched from SQLite to PostgreSQL.
+
+All PostgreSQL queries are contained in:
+
+```text
+postgresRepository.js
+```
+
+The Express routes call repository functions such as:
+
+```text
+getAllTasks
+getTaskById
+createTask
+updateTask
+deleteTask
+```
+
+The routes do not contain PostgreSQL connection configuration. This keeps the
+API layer separate from the storage implementation.
+
+## PostgreSQL initialization
+
+The table definition is stored in:
+
+```text
+sql/init.sql
+```
+
+The application automatically:
+
+1. connects to PostgreSQL,
+2. creates the `tasks` table if it is missing,
+3. inserts three example tasks only when the table is empty.
+
+## Persistence proof
+
+I created a task through `POST /tasks`, confirmed it directly in PostgreSQL,
+and then stopped and removed both Compose containers:
+
+```bash
+docker compose down
+```
+
+I started the stack again:
+
+```bash
+docker compose up -d
+```
+
+The task was still returned by `GET /tasks`.
+
+The data survived because PostgreSQL stores its files in the named Docker
+volume:
+
+```text
+taskdata
+```
+
+The containers can be removed and recreated without deleting this volume.
+
+![PostgreSQL persistence proof](./screenshots/postgres-persistence.png)
+
+To stop the stack without deleting the database:
+
+```bash
+docker compose down
+```
+
+The following command also removes the database volume and should only be used
+when a completely clean database is required:
+
+```bash
+docker compose down -v
+```
