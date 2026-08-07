@@ -141,8 +141,8 @@ app.get('/public/info', (req, res) => {
   });
 });
 
-// Şimdilik yalnızca Bearer token varlığını kontrol eden protected endpoint
-app.get('/protected/profile', (req, res) => {
+// Geçerli JWT isteyen protected endpoint
+app.get('/protected/profile', async (req, res) => {
   const token = extractBearerToken(req);
 
   if (!token) {
@@ -151,9 +151,29 @@ app.get('/protected/profile', (req, res) => {
     });
   }
 
-  return res.status(200).json({
-    message: 'Protected profile route reached',
-  });
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data.user) {
+      return res.status(401).json({
+        error: 'Invalid or expired token',
+      });
+    }
+
+    return res.status(200).json({
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        created_at: data.user.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('Token verification failed:', error);
+
+    return res.status(401).json({
+      error: 'Invalid or expired token',
+    });
+  }
 });
 
 // Bütün görevleri PostgreSQL'den getir
