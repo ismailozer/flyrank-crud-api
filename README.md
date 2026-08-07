@@ -284,7 +284,7 @@ docker run --name taskdb \
   -e POSTGRES_DB=tasks \
   -p 5432:5432 \
   -v taskdata:/var/lib/postgresql/data \
-  -d postgres
+  -d postgres:17
 ```
 
 The database runs at `localhost:5432`.

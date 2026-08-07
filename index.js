@@ -2,6 +2,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const db = require('./database');
+const postgresRepository = require('./postgresRepository');
 
 const app = express();
 const port = 3000;
@@ -207,6 +208,19 @@ app.delete('/tasks/:id', (req, res) => {
   res.status(204).send();
 });
 
-app.listen(port, () => {
-  console.log(`Server is running at http://localhost:${port}`);
-});
+async function startServer() {
+  try {
+    await postgresRepository.init();
+
+    console.log('PostgreSQL connection and table are ready');
+
+    app.listen(port, () => {
+      console.log(`Server is running at http://localhost:${port}`);
+    });
+  } catch (error) {
+    console.error('Failed to start the server:', error.message);
+    process.exit(1);
+  }
+}
+
+startServer();
