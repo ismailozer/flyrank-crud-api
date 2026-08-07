@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Task API",
+    "title": "Task API with Supabase Auth",
     "version": "1.0.0",
-    "description": "An in-memory CRUD API for managing tasks."
+    "description": "A PostgreSQL-backed CRUD API with Supabase authentication and JWT-protected routes."
   },
   "servers": [
     {
@@ -31,6 +31,142 @@
           }
         }
       }
+    },
+    "/auth/signup": {
+        "post": {
+            "tags": ["Auth"],
+            "summary": "Create a new user account",
+            "requestBody": {
+                "required": true,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/AuthCredentials"
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "201": {
+                    "description": "User created successfully"
+                },
+                "400": {
+                    "description": "Invalid signup request"
+                }
+            }
+        }
+    },
+    "/auth/login": {
+        "post": {
+            "tags": ["Auth"],
+            "summary": "Log in and receive JWT tokens",
+            "requestBody": {
+                "required": true,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/AuthCredentials"
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Login successful",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginResponse"
+                            }
+                        }
+                    }
+                },
+                "400": {
+                    "description": "Email and password are required"
+                },
+                "401": {
+                    "description": "Invalid login credentials"
+                }
+            }
+        }
+    },
+    "/auth/logout": {
+        "post": {
+            "tags": ["Auth"],
+            "summary": "Log out the authenticated user",
+            "security": [
+                {
+                    "BearerAuth": []
+                }
+            ],
+            "responses": {
+                "200": {
+                    "description": "Logged out successfully"
+                },
+                "401": {
+                    "description": "Missing, invalid, or expired token"
+                },
+                "500": {
+                    "description": "Logout failed"
+                }
+            }
+        }
+    },
+    "/public/info": {
+        "get": {
+            "tags": ["Public"],
+            "summary": "Get public information",
+            "responses": {
+                "200": {
+                    "description": "Public information returned successfully"
+                }
+            }
+        }
+    },
+    "/protected/profile": {
+        "get": {
+            "tags": ["Protected"],
+            "summary": "Get the authenticated user's profile",
+            "security": [
+                {
+                    "BearerAuth": []
+                }
+            ],
+            "responses": {
+                "200": {
+                    "description": "Authenticated user profile",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProfileResponse"
+                            }
+                        }
+                    }
+                },
+                "401": {
+                    "description": "Missing, invalid, or expired token"
+                }
+            }
+        }
+    },
+    "/protected/dashboard": {
+        "get": {
+            "tags": ["Protected"],
+            "summary": "Get the authenticated user's dashboard",
+            "security": [
+                {
+                    "BearerAuth": []
+                }
+            ],
+            "responses": {
+                "200": {
+                    "description": "Protected dashboard returned successfully"
+                },
+                "401": {
+                    "description": "Missing, invalid, or expired token"
+                }
+            }
+        }
     },
     "/tasks": {
       "get": {
@@ -191,6 +327,13 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
     "schemas": {
       "Task": {
         "type": "object",
@@ -243,7 +386,58 @@
             "example": "Task 99 not found"
           }
         }
-      }
+      },
+      "AuthCredentials": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "auth-test@example.com"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "password123"
+          }
+        }
+      },
+        "LoginResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string",
+                    "description": "Supabase JWT access token"
+                },
+                "refresh_token": {
+                    "type": "string",
+                "description": "Supabase refresh token"
+                }
+            }
+        },
+        "ProfileResponse": {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "email": {
+                            "type": "string",
+                            "format": "email"
+                        },
+                        "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    }
+                }
+            }
+        }
     }
   }
 }
