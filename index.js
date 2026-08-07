@@ -9,24 +9,6 @@ const port = 3000;
 app.use(express.json());
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
-// Geçici, bellek içi görev listesi
-const tasks = [
-  {
-    id: 1,
-    title: 'Buy groceries',
-    done: false,
-  },
-  {
-    id: 2,
-    title: 'Walk the dog',
-    done: true,
-  },
-  {
-    id: 3,
-    title: 'Read a book',
-    done: false,
-  },
-];
 
 function formatTask(row) {
   return {
@@ -34,6 +16,16 @@ function formatTask(row) {
     title: row.title,
     done: Boolean(row.done),
   };
+}
+
+function parseTaskId(value) {
+  const id = Number(value);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return null;
+  }
+
+  return id;
 }
 
 app.get('/', (req, res) => {
@@ -92,10 +84,20 @@ app.post('/tasks', (req, res) => {
 
 // ID'ye göre tek bir görevi veritabanından getir
 app.get('/tasks/:id', (req, res) => {
-  const id = Number(req.params.id);
+  const id = parseTaskId(req.params.id);
+
+  if (id === null) {
+    return res.status(404).json({
+      error: `Task ${req.params.id} not found`,
+    });
+  }
 
   const row = db
-    .prepare('SELECT id, title, done FROM tasks WHERE id = ?')
+    .prepare(`
+      SELECT id, title, done
+      FROM tasks
+      WHERE id = ?
+    `)
     .get(id);
 
   if (!row) {
@@ -107,12 +109,25 @@ app.get('/tasks/:id', (req, res) => {
   res.json(formatTask(row));
 });
 
-// Bir görevi güncelle
+// Bir görevi veritabanında güncelle
 app.put('/tasks/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const task = tasks.find((task) => task.id === id);
+  const id = parseTaskId(req.params.id);
 
-  if (!task) {
+  if (id === null) {
+    return res.status(404).json({
+      error: `Task ${req.params.id} not found`,
+    });
+  }
+
+  const existingTask = db
+    .prepare(`
+      SELECT id, title, done
+      FROM tasks
+      WHERE id = ?
+    `)
+    .get(id);
+
+  if (!existingTask) {
     return res.status(404).json({
       error: `Task ${id} not found`,
     });
@@ -129,6 +144,9 @@ app.put('/tasks/:id', (req, res) => {
     });
   }
 
+  let updatedTitle = existingTask.title;
+  let updatedDone = Boolean(existingTask.done);
+
   if (hasTitle) {
     if (typeof body.title !== 'string' || body.title.trim() === '') {
       return res.status(400).json({
@@ -136,7 +154,7 @@ app.put('/tasks/:id', (req, res) => {
       });
     }
 
-    task.title = body.title.trim();
+    updatedTitle = body.title.trim();
   }
 
   if (hasDone) {
@@ -146,24 +164,45 @@ app.put('/tasks/:id', (req, res) => {
       });
     }
 
-    task.done = body.done;
+    updatedDone = body.done;
   }
 
-  res.json(task);
+  db.prepare(`
+    UPDATE tasks
+    SET title = ?, done = ?
+    WHERE id = ?
+  `).run(updatedTitle, updatedDone ? 1 : 0, id);
+
+  const updatedTask = db
+    .prepare(`
+      SELECT id, title, done
+      FROM tasks
+      WHERE id = ?
+    `)
+    .get(id);
+
+  res.json(formatTask(updatedTask));
 });
 
-// Bir görevi sil
+// Bir görevi veritabanından sil
 app.delete('/tasks/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const taskIndex = tasks.findIndex((task) => task.id === id);
+  const id = parseTaskId(req.params.id);
 
-  if (taskIndex === -1) {
+  if (id === null) {
+    return res.status(404).json({
+      error: `Task ${req.params.id} not found`,
+    });
+  }
+
+  const result = db
+    .prepare('DELETE FROM tasks WHERE id = ?')
+    .run(id);
+
+  if (result.changes === 0) {
     return res.status(404).json({
       error: `Task ${id} not found`,
     });
   }
-
-  tasks.splice(taskIndex, 1);
 
   res.status(204).send();
 });
