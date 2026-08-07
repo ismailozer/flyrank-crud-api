@@ -44,15 +44,19 @@ app.get('/health', (req, res) => {
 });
 
 
-// Bütün görevleri veritabanından getir
-app.get('/tasks', (req, res) => {
-  const rows = db
-    .prepare('SELECT id, title, done FROM tasks ORDER BY id')
-    .all();
+// Bütün görevleri PostgreSQL'den getir
+app.get('/tasks', async (req, res) => {
+  try {
+    const tasks = await postgresRepository.getAllTasks();
 
-  const taskList = rows.map(formatTask);
+    res.json(tasks);
+  } catch (error) {
+    console.error('Failed to read tasks:', error);
 
-  res.json(taskList);
+    res.status(500).json({
+      error: 'Failed to read tasks',
+    });
+  }
 });
 
 // Yeni görevi veritabanına ekle
@@ -83,8 +87,8 @@ app.post('/tasks', (req, res) => {
   res.status(201).json(formatTask(newTaskRow));
 });
 
-// ID'ye göre tek bir görevi veritabanından getir
-app.get('/tasks/:id', (req, res) => {
+// ID'ye göre tek bir görevi PostgreSQL'den getir
+app.get('/tasks/:id', async (req, res) => {
   const id = parseTaskId(req.params.id);
 
   if (id === null) {
@@ -93,21 +97,23 @@ app.get('/tasks/:id', (req, res) => {
     });
   }
 
-  const row = db
-    .prepare(`
-      SELECT id, title, done
-      FROM tasks
-      WHERE id = ?
-    `)
-    .get(id);
+  try {
+    const task = await postgresRepository.getTaskById(id);
 
-  if (!row) {
-    return res.status(404).json({
-      error: `Task ${id} not found`,
+    if (!task) {
+      return res.status(404).json({
+        error: `Task ${id} not found`,
+      });
+    }
+
+    res.json(task);
+  } catch (error) {
+    console.error(`Failed to read task ${id}:`, error);
+
+    res.status(500).json({
+      error: 'Failed to read task',
     });
   }
-
-  res.json(formatTask(row));
 });
 
 // Bir görevi veritabanında güncelle

@@ -61,12 +61,36 @@ async function init() {
   }
 }
 
+async function getAllTasks() {
+  const result = await pool.query(`
+    SELECT id, title, done
+    FROM tasks
+    ORDER BY id
+  `);
+
+  return result.rows;
+}
+
+async function getTaskById(id) {
+  const result = await pool.query(
+    `
+      SELECT id, title, done
+      FROM tasks
+      WHERE id = $1
+    `,
+    [id],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 async function close() {
   await pool.end();
 }
 
 module.exports = {
-  pool,
   init,
+  getAllTasks,
+  getTaskById,
   close,
 };
