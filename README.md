@@ -1,6 +1,6 @@
 # Task API
 
-A simple in-memory CRUD API for managing a to-do list.
+A SQLite-backed CRUD API for managing a persistent to-do list.
 
 The project was built with Node.js and Express as part of the FlyRank Backend AI Engineering internship assignment.
 
@@ -14,12 +14,18 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - JSON input validation
 - Correct HTTP status codes
 - Interactive Swagger UI documentation
-- In-memory data storage
+- Persistent SQLite data storage
+- Automatically created database and table
+- Three example tasks seeded when the database is empty
+- Parameterized SQL queries
+- Data that survives server restarts
 
 ## Technologies
 
 - Node.js
 - Express
+- SQLite
+- better-sqlite3
 - Swagger UI
 - OpenAPI 3.0
 
@@ -42,6 +48,8 @@ Install the dependencies:
 ```bash
 npm install
 ```
+No separate SQLite installation or database setup is required. The application
+creates `tasks.db` and the `tasks` table automatically when it starts.
 
 ## Running the API
 
@@ -191,11 +199,70 @@ http://localhost:3000/docs
 
 ![Swagger UI](./screenshots/swagger-ui.png)
 
-## In-memory storage
+## SQLite database
 
-The tasks are stored in an array in the application's memory.
+The application stores tasks in a SQLite database instead of an in-memory
+array.
 
-When the server is restarted, tasks created, updated, or deleted during the previous session are lost. The original three example tasks are loaded again because no database or persistent file storage is used.
+SQLite was chosen because it requires no separate database server, stores the
+entire database in a single file, requires almost no setup and preserves data
+when the Node.js server restarts.
+
+The database file is created automatically at:
+
+```text
+tasks.db
+```
+
+The `tasks.db` file is ignored by Git. When someone clones the repository and
+starts the project, the application automatically creates a fresh database,
+creates the `tasks` table and inserts three example tasks if the table is
+empty.
+
+The table has the following columns:
+
+| Column | SQLite type | Description |
+|---|---|---|
+| `id` | INTEGER | Primary key for each task |
+| `title` | TEXT | Task description |
+| `done` | INTEGER | Completion status stored as `0` or `1` |
+
+In the API response, SQLite's `0` and `1` values are converted to JSON
+booleans `false` and `true`.
+
+## Persistence
+
+Tasks are stored on disk inside `tasks.db`.
+
+A task created through `POST /tasks` remains available after stopping and
+restarting the server. The API endpoints and response shapes remain the same;
+only the storage layer changed from an array in memory to SQLite.
+
+This demonstrates that the database is an implementation detail behind the
+API.
+
+## Database screenshot
+
+The following screenshot shows the `tasks` table opened in DB Browser for
+SQLite:
+
+![SQLite database](./screenshots/sqlite-database.png)
+
+## SQL exploration
+
+I opened `tasks.db` in DB Browser for SQLite and executed SQL queries manually.
+
+Example query:
+
+```sql
+SELECT * FROM tasks
+WHERE done = 1;
+```
+
+This query returned only completed tasks whose `done` value was stored as `1`.
+
+Other queries and observations are documented in
+[`sql-exploration.md`](./sql-exploration.md).
 
 ## HTTP status codes
 
