@@ -1,6 +1,7 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
+const db = require('./database');
 
 const app = express();
 const port = 3000;
