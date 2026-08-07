@@ -62,7 +62,7 @@ app.get('/tasks', (req, res) => {
   res.json(taskList);
 });
 
-// Yeni görev oluştur
+// Yeni görevi veritabanına ekle
 app.post('/tasks', (req, res) => {
   const { title } = req.body ?? {};
 
@@ -72,20 +72,22 @@ app.post('/tasks', (req, res) => {
     });
   }
 
-  const id =
-    tasks.length === 0
-      ? 1
-      : Math.max(...tasks.map((task) => task.id)) + 1;
+  const result = db
+    .prepare(`
+      INSERT INTO tasks (title, done)
+      VALUES (?, ?)
+    `)
+    .run(title.trim(), 0);
 
-  const newTask = {
-    id,
-    title: title.trim(),
-    done: false,
-  };
+  const newTaskRow = db
+    .prepare(`
+      SELECT id, title, done
+      FROM tasks
+      WHERE id = ?
+    `)
+    .get(Number(result.lastInsertRowid));
 
-  tasks.push(newTask);
-
-  res.status(201).json(newTask);
+  res.status(201).json(formatTask(newTaskRow));
 });
 
 // ID'ye göre tek bir görevi veritabanından getir
