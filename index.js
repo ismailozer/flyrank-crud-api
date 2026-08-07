@@ -28,6 +28,14 @@ const tasks = [
   },
 ];
 
+function formatTask(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    done: Boolean(row.done),
+  };
+}
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
@@ -42,9 +50,16 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Bütün görevleri getir
+
+// Bütün görevleri veritabanından getir
 app.get('/tasks', (req, res) => {
-  res.json(tasks);
+  const rows = db
+    .prepare('SELECT id, title, done FROM tasks ORDER BY id')
+    .all();
+
+  const taskList = rows.map(formatTask);
+
+  res.json(taskList);
 });
 
 // Yeni görev oluştur
@@ -73,19 +88,21 @@ app.post('/tasks', (req, res) => {
   res.status(201).json(newTask);
 });
 
-// ID'ye göre tek bir görevi getir
+// ID'ye göre tek bir görevi veritabanından getir
 app.get('/tasks/:id', (req, res) => {
   const id = Number(req.params.id);
 
-  const task = tasks.find((task) => task.id === id);
+  const row = db
+    .prepare('SELECT id, title, done FROM tasks WHERE id = ?')
+    .get(id);
 
-  if (!task) {
+  if (!row) {
     return res.status(404).json({
       error: `Task ${id} not found`,
     });
   }
 
-  res.json(task);
+  res.json(formatTask(row));
 });
 
 // Bir görevi güncelle
