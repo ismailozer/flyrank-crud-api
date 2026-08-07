@@ -273,3 +273,24 @@ Other queries and observations are documented in
 | 204 | A task was deleted successfully |
 | 400 | The request body was invalid |
 | 404 | The requested task was not found |
+
+## PostgreSQL development container
+
+PostgreSQL can be started manually for development with:
+
+```bash
+docker run --name taskdb \
+  -e POSTGRES_PASSWORD=dev \
+  -e POSTGRES_DB=tasks \
+  -p 5432:5432 \
+  -v taskdata:/var/lib/postgresql/data \
+  -d postgres
+```
+
+The database runs at `localhost:5432`.
+
+The named Docker volume `taskdata` stores the PostgreSQL data outside the
+container so that rows can survive container restarts.
+
+The application is not connected to PostgreSQL yet. The connection and table
+setup are implemented in the next stage.
