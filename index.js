@@ -21,6 +21,26 @@ function parseTaskId(value) {
   return id;
 }
 
+function extractBearerToken(req) {
+  const authorization = req.headers.authorization;
+
+  if (typeof authorization !== 'string') {
+    return null;
+  }
+
+  const parts = authorization.trim().split(/\s+/);
+
+  if (
+    parts.length !== 2 ||
+    parts[0].toLowerCase() !== 'bearer' ||
+    parts[1].trim() === ''
+  ) {
+    return null;
+  }
+
+  return parts[1];
+}
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
@@ -112,6 +132,28 @@ app.post('/auth/login', async (req, res) => {
       error: 'Failed to log in',
     });
   }
+});
+
+// Herkesin erişebildiği public endpoint
+app.get('/public/info', (req, res) => {
+  return res.status(200).json({
+    message: 'Welcome stranger! This info is public.',
+  });
+});
+
+// Şimdilik yalnızca Bearer token varlığını kontrol eden protected endpoint
+app.get('/protected/profile', (req, res) => {
+  const token = extractBearerToken(req);
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Access token required',
+    });
+  }
+
+  return res.status(200).json({
+    message: 'Protected profile route reached',
+  });
 });
 
 // Bütün görevleri PostgreSQL'den getir
