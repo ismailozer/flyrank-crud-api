@@ -2,6 +2,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const postgresRepository = require('./postgresRepository');
+const supabase = require('./supabaseClient');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -205,6 +206,7 @@ async function startServer() {
     await postgresRepository.init();
 
     console.log('PostgreSQL connection and table are ready');
+    console.log('Supabase client initialized');
 
     app.listen(port, () => {
       console.log(`Server is running at http://localhost:${port}`);
