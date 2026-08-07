@@ -1,24 +1,25 @@
 # Task API
 
-A Dockerized Express CRUD API backed by PostgreSQL.
+A Dockerized Express CRUD API backed by PostgreSQL with Supabase authentication and JWT-protected routes.
 
-The project was built with Node.js and Express as part of the FlyRank Backend AI Engineering internship assignment.
+The project was built with Node.js and Express as part of the FlyRank Backend AI Engineering internship assignments.
 
 ## Features
 
-- Create a new task
-- List all tasks
-- Get a task by ID
-- Update a task
-- Delete a task
+- Create, read, update and delete tasks
+- PostgreSQL persistent storage
+- Docker Compose for application + database
+- Supabase user authentication
+- User sign up and login
+- JWT access tokens
+- Reusable authentication middleware
+- Public and protected API routes
+- User logout
 - JSON input validation
 - Correct HTTP status codes
-- Interactive Swagger UI documentation
-- Persistent SQLite data storage
-- Automatically created database and table
-- Three example tasks seeded when the database is empty
-- Parameterized SQL queries
-- Data that survives server restarts
+- Swagger UI with Bearer authentication
+- Parameterized PostgreSQL queries
+- Data that survives container restarts
 
 ## Technologies
 
@@ -26,6 +27,9 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - Express
 - PostgreSQL
 - `pg`
+- Supabase Auth
+- `@supabase/supabase-js`
+- JSON Web Tokens (JWT)
 - Docker
 - Docker Compose
 - Swagger UI
@@ -50,12 +54,35 @@ Install the dependencies:
 ```bash
 npm install
 ```
-No separate SQLite installation or database setup is required. The application
-creates `tasks.db` and the `tasks` table automatically when it starts.
+PostgreSQL runs in Docker, so no separate local PostgreSQL installation is required when using Docker Compose.
+
+Create a `.env` file from `.env.example` before starting the application. The PostgreSQL `tasks` table is created automatically when the application starts.
 
 ## Running the API
 
-Start the server with:
+### Docker Compose
+
+The recommended way to start the complete application stack is:
+
+```bash
+docker compose up --build
+```
+
+To run it in the background:
+
+```bash
+docker compose up --build -d
+```
+
+This starts both:
+
+- the Express application
+- the PostgreSQL database
+
+### Run Node.js locally
+
+If PostgreSQL is already running and `.env` contains a valid `DATABASE_URL`,
+the Node.js application can also be started directly:
 
 ```bash
 npm start
@@ -67,7 +94,7 @@ The API runs at:
 http://localhost:3000
 ```
 
-Swagger UI is available at:
+Swagger UI:
 
 ```text
 http://localhost:3000/docs
@@ -87,15 +114,201 @@ Each task has the following structure:
 
 ## Endpoints
 
-| Method | Endpoint | Description | Success status |
-|---|---|---|---:|
-| GET | `/` | Returns information about the API | 200 |
-| GET | `/health` | Checks whether the server is running | 200 |
-| GET | `/tasks` | Returns all tasks | 200 |
-| GET | `/tasks/:id` | Returns one task by ID | 200 |
-| POST | `/tasks` | Creates a new task | 201 |
-| PUT | `/tasks/:id` | Updates a task | 200 |
-| DELETE | `/tasks/:id` | Deletes a task | 204 |
+| Method | Endpoint | Authentication | Description |
+|---|---|---|---|
+| GET | `/` | No | Returns API information |
+| GET | `/health` | No | Checks server health |
+| POST | `/auth/signup` | No | Creates a user account |
+| POST | `/auth/login` | No | Logs in and returns JWT tokens |
+| POST | `/auth/logout` | Bearer JWT | Logs out the authenticated user |
+| GET | `/public/info` | No | Returns public information |
+| GET | `/protected/profile` | Bearer JWT | Returns the authenticated user profile |
+| GET | `/protected/dashboard` | Bearer JWT | Returns protected dashboard information |
+| GET | `/tasks` | No | Returns all tasks |
+| GET | `/tasks/:id` | No | Returns one task |
+| POST | `/tasks` | No | Creates a new task |
+| PUT | `/tasks/:id` | No | Updates a task |
+| DELETE | `/tasks/:id` | No | Deletes a task |
+
+## Authentication
+
+Authentication is handled by Supabase Auth.
+
+The application does not store user passwords in the local PostgreSQL
+database. Email and password credentials are sent to Supabase Auth, which
+manages user accounts and password security.
+
+### Sign up
+
+Create a new user with:
+
+```http
+POST /auth/signup
+```
+
+Example request body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "example-password"
+}
+```
+
+A successful signup returns:
+
+```text
+201 Created
+```
+
+Missing email or password returns:
+
+```text
+400 Bad Request
+```
+
+### Log in
+
+Log in with:
+
+```http
+POST /auth/login
+```
+
+Example request body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "example-password"
+}
+```
+
+A successful login returns an access token and refresh token:
+
+```json
+{
+  "access_token": "<JWT>",
+  "refresh_token": "<refresh-token>"
+}
+```
+
+Invalid credentials return:
+
+```text
+401 Unauthorized
+```
+
+### Protected routes
+
+Protected routes require an access token in the HTTP `Authorization` header:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+Protected endpoints include:
+
+```text
+GET /protected/profile
+GET /protected/dashboard
+POST /auth/logout
+```
+
+Requests without an access token return:
+
+```text
+401 Unauthorized
+```
+
+Invalid or expired tokens also return:
+
+```text
+401 Unauthorized
+```
+
+## Authentication middleware
+
+Reusable authentication logic is implemented in:
+
+```text
+authMiddleware.js
+```
+
+The middleware reads the `Authorization` header, extracts the Bearer token and
+verifies it through Supabase Auth.
+
+When the token is valid, the authenticated user is attached to:
+
+```text
+req.user
+```
+
+The access token is also attached to:
+
+```text
+req.accessToken
+```
+
+The protected route can then continue by calling the next Express handler.
+
+This avoids duplicating JWT verification logic in every protected endpoint.
+
+The same middleware currently protects:
+
+```text
+/protected/profile
+/protected/dashboard
+/auth/logout
+```
+
+## Swagger authentication
+
+Swagger UI is available at:
+
+```text
+http://localhost:3000/docs
+```
+
+The authentication flow can be tested directly through Swagger UI.
+
+First, run:
+
+```text
+POST /auth/login
+```
+
+Copy the returned `access_token`.
+
+Then click the **Authorize** button at the top of Swagger UI and paste only the
+JWT access token.
+
+Swagger automatically sends the token using:
+
+```text
+Authorization: Bearer <token>
+```
+
+After authorization, protected endpoints such as:
+
+```text
+GET /protected/profile
+GET /protected/dashboard
+POST /auth/logout
+```
+
+can be tested using **Try it out**.
+
+Public endpoints such as:
+
+```text
+GET /public/info
+```
+
+do not require authentication.
+
+![Swagger Auth](./screenshots/swagger-auth.png)
+![Protected route with JWT](./screenshots/swagger-auth-2.png)
 
 ## Create a task
 
@@ -144,27 +357,6 @@ curl -X PUT http://localhost:3000/tasks/4 \
   -d "{\"title\":\"Buy oat milk\",\"done\":true}"
 ```
 
-## Example curl output
-
-The following output was produced by:
-
-```bash
-curl -i http://localhost:3000/tasks/1
-```
-
-```text
-HTTP/1.1 200 OK
-X-Powered-By: Express
-Content-Type: application/json; charset=utf-8
-Content-Length: 45
-ETag: W/"2d-Gv8HDdZD1sn+UqMseo56OTgQmek"
-Date: Thu, 06 Aug 2026 21:55:06 GMT
-Connection: keep-alive
-Keep-Alive: timeout=5
-
-{"id":1,"title":"Buy groceries","done":false}
-```
-
 ## Validation and error responses
 
 Creating a task without a valid title returns `400 Bad Request`:
@@ -191,90 +383,17 @@ Sending an invalid `done` value during an update returns `400 Bad Request`:
 }
 ```
 
-## Swagger UI
-
-The API can be tested interactively through Swagger UI:
-
-```text
-http://localhost:3000/docs
-```
-
-![Swagger UI](./screenshots/swagger-ui.png)
-
-## SQLite database
-
-The application stores tasks in a SQLite database instead of an in-memory
-array.
-
-SQLite was chosen because it requires no separate database server, stores the
-entire database in a single file, requires almost no setup and preserves data
-when the Node.js server restarts.
-
-The database file is created automatically at:
-
-```text
-tasks.db
-```
-
-The `tasks.db` file is ignored by Git. When someone clones the repository and
-starts the project, the application automatically creates a fresh database,
-creates the `tasks` table and inserts three example tasks if the table is
-empty.
-
-The table has the following columns:
-
-| Column | SQLite type | Description |
-|---|---|---|
-| `id` | INTEGER | Primary key for each task |
-| `title` | TEXT | Task description |
-| `done` | INTEGER | Completion status stored as `0` or `1` |
-
-In the API response, SQLite's `0` and `1` values are converted to JSON
-booleans `false` and `true`.
-
-## Persistence
-
-Tasks are stored on disk inside `tasks.db`.
-
-A task created through `POST /tasks` remains available after stopping and
-restarting the server. The API endpoints and response shapes remain the same;
-only the storage layer changed from an array in memory to SQLite.
-
-This demonstrates that the database is an implementation detail behind the
-API.
-
-## Database screenshot
-
-The following screenshot shows the `tasks` table opened in DB Browser for
-SQLite:
-
-![SQLite database](./screenshots/sqlite-database.png)
-
-## SQL exploration
-
-I opened `tasks.db` in DB Browser for SQLite and executed SQL queries manually.
-
-Example query:
-
-```sql
-SELECT * FROM tasks
-WHERE done = 1;
-```
-
-This query returned only completed tasks whose `done` value was stored as `1`.
-
-Other queries and observations are documented in
-[`sql-exploration.md`](./sql-exploration.md).
-
 ## HTTP status codes
 
 | Status | Meaning |
 |---:|---|
 | 200 | Request completed successfully |
-| 201 | A new task was created |
+| 201 | A resource was created successfully |
 | 204 | A task was deleted successfully |
 | 400 | The request body was invalid |
-| 404 | The requested task was not found |
+| 401 | Authentication failed or a valid token was not provided |
+| 404 | The requested resource was not found |
+| 500 | An unexpected server error occurred |
 
 ## PostgreSQL development container
 
@@ -294,8 +413,7 @@ The database runs at `localhost:5432`.
 The named Docker volume `taskdata` stores the PostgreSQL data outside the
 container so that rows can survive container restarts.
 
-The application is not connected to PostgreSQL yet. The connection and table
-setup are implemented in the next stage.
+The application connects to PostgreSQL through `postgresRepository.js`. All CRUD operations use PostgreSQL queries.
 
 ## Docker Compose stack
 
@@ -346,20 +464,34 @@ On Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-The local Node.js connection uses:
+The application requires PostgreSQL and Supabase environment variables.
+
+Example configuration:
 
 ```env
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=dev
+POSTGRES_DB=tasks
+
 DATABASE_URL=postgres://postgres:dev@localhost:5432/tasks
-```
-
-Inside Docker Compose, the application connects to the database service by
-its Compose service name:
-
-```env
 DOCKER_DATABASE_URL=postgres://postgres:dev@db:5432/tasks
+
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_publishable_key
 ```
 
-The real `.env` file is ignored by Git. Only `.env.example` is committed.
+`DATABASE_URL` is used when the Node.js application runs directly on the host
+machine.
+
+`DOCKER_DATABASE_URL` is used when the application runs inside Docker Compose,
+where the PostgreSQL service is available with the hostname `db`.
+
+`SUPABASE_URL` and `SUPABASE_KEY` are used to connect the application to
+Supabase Auth.
+
+The real `.env` file is ignored by Git and must never be committed.
+
+Only `.env.example` is committed to the repository.
 
 ## Repository architecture
 
