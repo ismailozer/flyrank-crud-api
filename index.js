@@ -1,7 +1,6 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
-const db = require('./database');
 const postgresRepository = require('./postgresRepository');
 
 const app = express();
@@ -10,14 +9,6 @@ const port = 3000;
 app.use(express.json());
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
-
-function formatTask(row) {
-  return {
-    id: row.id,
-    title: row.title,
-    done: Boolean(row.done),
-  };
-}
 
 function parseTaskId(value) {
   const id = Number(value);
@@ -59,8 +50,8 @@ app.get('/tasks', async (req, res) => {
   }
 });
 
-// Yeni görevi veritabanına ekle
-app.post('/tasks', (req, res) => {
+// Yeni görevi PostgreSQL'e ekle
+app.post('/tasks', async (req, res) => {
   const { title } = req.body ?? {};
 
   if (typeof title !== 'string' || title.trim() === '') {
@@ -69,22 +60,17 @@ app.post('/tasks', (req, res) => {
     });
   }
 
-  const result = db
-    .prepare(`
-      INSERT INTO tasks (title, done)
-      VALUES (?, ?)
-    `)
-    .run(title.trim(), 0);
+  try {
+    const newTask = await postgresRepository.createTask(title.trim());
 
-  const newTaskRow = db
-    .prepare(`
-      SELECT id, title, done
-      FROM tasks
-      WHERE id = ?
-    `)
-    .get(Number(result.lastInsertRowid));
+    return res.status(201).json(newTask);
+  } catch (error) {
+    console.error('Failed to create task:', error);
 
-  res.status(201).json(formatTask(newTaskRow));
+    return res.status(500).json({
+      error: 'Failed to create task',
+    });
+  }
 });
 
 // ID'ye göre tek bir görevi PostgreSQL'den getir
@@ -116,8 +102,8 @@ app.get('/tasks/:id', async (req, res) => {
   }
 });
 
-// Bir görevi veritabanında güncelle
-app.put('/tasks/:id', (req, res) => {
+// Bir görevi PostgreSQL'de güncelle
+app.put('/tasks/:id', async (req, res) => {
   const id = parseTaskId(req.params.id);
 
   if (id === null) {
@@ -126,73 +112,67 @@ app.put('/tasks/:id', (req, res) => {
     });
   }
 
-  const existingTask = db
-    .prepare(`
-      SELECT id, title, done
-      FROM tasks
-      WHERE id = ?
-    `)
-    .get(id);
+  try {
+    const existingTask = await postgresRepository.getTaskById(id);
 
-  if (!existingTask) {
-    return res.status(404).json({
-      error: `Task ${id} not found`,
-    });
-  }
-
-  const body = req.body ?? {};
-
-  const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
-  const hasDone = Object.prototype.hasOwnProperty.call(body, 'done');
-
-  if (!hasTitle && !hasDone) {
-    return res.status(400).json({
-      error: 'request body must include title and/or done',
-    });
-  }
-
-  let updatedTitle = existingTask.title;
-  let updatedDone = Boolean(existingTask.done);
-
-  if (hasTitle) {
-    if (typeof body.title !== 'string' || body.title.trim() === '') {
-      return res.status(400).json({
-        error: 'title cannot be empty',
+    if (!existingTask) {
+      return res.status(404).json({
+        error: `Task ${id} not found`,
       });
     }
 
-    updatedTitle = body.title.trim();
-  }
+    const body = req.body ?? {};
 
-  if (hasDone) {
-    if (typeof body.done !== 'boolean') {
+    const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
+    const hasDone = Object.prototype.hasOwnProperty.call(body, 'done');
+
+    if (!hasTitle && !hasDone) {
       return res.status(400).json({
-        error: 'done must be a boolean',
+        error: 'request body must include title and/or done',
       });
     }
 
-    updatedDone = body.done;
+    let updatedTitle = existingTask.title;
+    let updatedDone = existingTask.done;
+
+    if (hasTitle) {
+      if (typeof body.title !== 'string' || body.title.trim() === '') {
+        return res.status(400).json({
+          error: 'title cannot be empty',
+        });
+      }
+
+      updatedTitle = body.title.trim();
+    }
+
+    if (hasDone) {
+      if (typeof body.done !== 'boolean') {
+        return res.status(400).json({
+          error: 'done must be a boolean',
+        });
+      }
+
+      updatedDone = body.done;
+    }
+
+    const updatedTask = await postgresRepository.updateTask(
+      id,
+      updatedTitle,
+      updatedDone,
+    );
+
+    return res.json(updatedTask);
+  } catch (error) {
+    console.error(`Failed to update task ${id}:`, error);
+
+    return res.status(500).json({
+      error: 'Failed to update task',
+    });
   }
-
-  db.prepare(`
-    UPDATE tasks
-    SET title = ?, done = ?
-    WHERE id = ?
-  `).run(updatedTitle, updatedDone ? 1 : 0, id);
-
-  const updatedTask = db
-    .prepare(`
-      SELECT id, title, done
-      FROM tasks
-      WHERE id = ?
-    `)
-    .get(id);
-
-  res.json(formatTask(updatedTask));
 });
 
-// Bir görevi veritabanından sil
-app.delete('/tasks/:id', (req, res) => {
+// Bir görevi PostgreSQL'den sil
+app.delete('/tasks/:id', async (req, res) => {
   const id = parseTaskId(req.params.id);
 
   if (id === null) {
@@ -201,17 +181,23 @@ app.delete('/tasks/:id', (req, res) => {
     });
   }
 
-  const result = db
-    .prepare('DELETE FROM tasks WHERE id = ?')
-    .run(id);
+  try {
+    const deleted = await postgresRepository.deleteTask(id);
 
-  if (result.changes === 0) {
-    return res.status(404).json({
-      error: `Task ${id} not found`,
+    if (!deleted) {
+      return res.status(404).json({
+        error: `Task ${id} not found`,
+      });
+    }
+
+    return res.status(204).send();
+  } catch (error) {
+    console.error(`Failed to delete task ${id}:`, error);
+
+    return res.status(500).json({
+      error: 'Failed to delete task',
     });
   }
-
-  res.status(204).send();
 });
 
 async function startServer() {
