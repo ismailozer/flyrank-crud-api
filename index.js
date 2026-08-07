@@ -3,6 +3,7 @@ const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const postgresRepository = require('./postgresRepository');
 const supabase = require('./supabaseClient');
+const requireAuth = require('./authMiddleware');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -19,26 +20,6 @@ function parseTaskId(value) {
   }
 
   return id;
-}
-
-function extractBearerToken(req) {
-  const authorization = req.headers.authorization;
-
-  if (typeof authorization !== 'string') {
-    return null;
-  }
-
-  const parts = authorization.trim().split(/\s+/);
-
-  if (
-    parts.length !== 2 ||
-    parts[0].toLowerCase() !== 'bearer' ||
-    parts[1].trim() === ''
-  ) {
-    return null;
-  }
-
-  return parts[1];
 }
 
 app.get('/', (req, res) => {
@@ -134,6 +115,43 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
+// Mevcut Supabase session'ını sonlandır
+app.post('/auth/logout', requireAuth, async (req, res) => {
+  try {
+    const response = await fetch(
+      `${process.env.SUPABASE_URL}/auth/v1/logout?scope=local`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: process.env.SUPABASE_KEY,
+          Authorization: `Bearer ${req.accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        'Supabase logout failed with status:',
+        response.status,
+      );
+
+      return res.status(500).json({
+        error: 'Failed to log out',
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    console.error('Logout failed:', error);
+
+    return res.status(500).json({
+      error: 'Failed to log out',
+    });
+  }
+});
+
 // Herkesin erişebildiği public endpoint
 app.get('/public/info', (req, res) => {
   return res.status(200).json({
@@ -141,39 +159,23 @@ app.get('/public/info', (req, res) => {
   });
 });
 
-// Geçerli JWT isteyen protected endpoint
-app.get('/protected/profile', async (req, res) => {
-  const token = extractBearerToken(req);
+// Giriş yapmış kullanıcının profili
+app.get('/protected/profile', requireAuth, (req, res) => {
+  return res.status(200).json({
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      created_at: req.user.created_at,
+    },
+  });
+});
 
-  if (!token) {
-    return res.status(401).json({
-      error: 'Access token required',
-    });
-  }
-
-  try {
-    const { data, error } = await supabase.auth.getUser(token);
-
-    if (error || !data.user) {
-      return res.status(401).json({
-        error: 'Invalid or expired token',
-      });
-    }
-
-    return res.status(200).json({
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        created_at: data.user.created_at,
-      },
-    });
-  } catch (error) {
-    console.error('Token verification failed:', error);
-
-    return res.status(401).json({
-      error: 'Invalid or expired token',
-    });
-  }
+// Yalnızca giriş yapmış kullanıcıların erişebildiği dashboard
+app.get('/protected/dashboard', requireAuth, (req, res) => {
+  return res.status(200).json({
+    message: `Welcome ${req.user.email}`,
+    user_id: req.user.id,
+  });
 });
 
 // Bütün görevleri PostgreSQL'den getir
