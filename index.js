@@ -4,7 +4,7 @@ const openapi = require('./openapi.json');
 const postgresRepository = require('./postgresRepository');
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));

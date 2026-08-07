@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.env
+
+tasks.db
+tasks.db-journal
+tasks.db-wal
+tasks.db-shm
+
+screenshots
+sql-exploration.md
+README.md
