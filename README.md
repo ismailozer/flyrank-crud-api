@@ -129,6 +129,142 @@ Each task has the following structure:
 | POST | `/tasks` | No | Creates a new task |
 | PUT | `/tasks/:id` | No | Updates a task |
 | DELETE | `/tasks/:id` | No | Deletes a task |
+| POST | `/triage` | No | Classifies a support message into a validated triage result |
+
+## AI Triage Endpoint
+
+The API includes a `POST /triage` endpoint that classifies an incoming support
+message into a fixed and validated JSON structure.
+
+The endpoint validates the request before any AI-related work is performed.
+
+During Stage 1 development, the real model call can be disabled by setting:
+
+```env
+LLM_STUB=1
+```
+
+When stub mode is enabled, the endpoint returns a predefined response that still
+passes the same output schema that will later be used for real LLM responses.
+
+This allows the API contract and validation logic to be tested without making
+any model calls.
+
+### Triage input
+
+The endpoint accepts a JSON body in the following format:
+
+```json
+{
+  "text": "I was charged twice for my subscription."
+}
+```
+
+The `text` field:
+
+- must be a string
+- cannot be empty
+- must contain at most 2000 characters
+
+### Valid triage request
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{"text":"I was charged twice for my subscription."}'
+```
+
+Expected status:
+
+```text
+200 OK
+```
+
+Example response while `LLM_STUB=1`:
+
+```json
+{
+  "category": "billing",
+  "urgency": "normal",
+  "suggested_team": "billing",
+  "confidence": 0.95,
+  "reason": "Stub response used for development."
+}
+```
+
+The response is validated against a fixed output schema.
+
+Allowed `category` values:
+
+- `billing`
+- `bug`
+- `feature`
+- `account`
+- `other`
+
+Allowed `urgency` values:
+
+- `low`
+- `normal`
+- `high`
+
+Allowed `suggested_team` values:
+
+- `billing`
+- `engineering`
+- `product`
+- `support`
+
+The `confidence` value must be between `0.0` and `1.0`.
+
+### Invalid triage request
+
+A request without the required `text` field:
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+returns:
+
+```text
+400 Bad Request
+```
+
+Example response:
+
+```json
+{
+  "error": "Invalid request",
+  "field": "text",
+  "message": "Invalid input: expected string, received undefined"
+}
+```
+
+An empty message is also rejected:
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{"text":""}'
+```
+
+Example response:
+
+```json
+{
+  "error": "Invalid request",
+  "field": "text",
+  "message": "text cannot be empty"
+}
+```
+
+At this stage, no real LLM call is performed when `LLM_STUB=1`.
+
+The purpose of stub mode is to establish and verify the API contract before
+connecting real model output to the endpoint.
 
 ## Authentication
 
