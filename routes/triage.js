@@ -45,15 +45,24 @@ router.post("/", async (req, res) => {
   }
 
     try {
-      const rawModelOutput = await triageMessage(
+      const result = await triageMessage(
         inputResult.data.text
       );
 
-      return res.status(200).json({
-        raw_model_output: rawModelOutput,
-      });
+      return res.status(200).json(result.data);
     } catch (error) {
-      console.error("Triage model call failed:", error.message);
+      if (error.code === "TRIAGE_OUTPUT_INVALID") {
+        return res.status(422).json({
+          error: "Model output validation failed",
+          message:
+            "The model could not produce a valid triage response after one repair attempt.",
+        });
+      }
+
+      console.error(
+        "Triage model call failed:",
+        error.message
+      );
 
       return res.status(502).json({
         error: "LLM provider request failed",
