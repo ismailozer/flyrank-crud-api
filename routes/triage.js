@@ -1,4 +1,5 @@
 const express = require("express");
+
 const { triageMessage } = require("../llm/triageService");
 
 const {
@@ -9,7 +10,7 @@ const {
 const router = express.Router();
 
 router.post("/", async (req, res) => {
-  // 1. Validate incoming request before doing anything expensive.
+  // 1. Validate input before doing any expensive work.
   const inputResult = triageInputSchema.safeParse(req.body);
 
   if (!inputResult.success) {
@@ -22,7 +23,17 @@ router.post("/", async (req, res) => {
     });
   }
 
-  // 2. Stage 1 stub mode.
+  // 2. Global LLM kill switch.
+  if (
+    String(process.env.LLM_ENABLED).toLowerCase() ===
+    "false"
+  ) {
+    return res.status(503).json({
+      error: "LLM feature is currently disabled",
+    });
+  }
+
+  // 3. Development stub mode.
   if (process.env.LLM_STUB === "1") {
     const stubResponse = {
       category: "billing",
@@ -44,30 +55,49 @@ router.post("/", async (req, res) => {
     return res.status(200).json(outputResult.data);
   }
 
-    try {
-      const result = await triageMessage(
-        inputResult.data.text
-      );
+  // 4. Real LLM execution.
+  try {
+    const result = await triageMessage(
+      inputResult.data.text
+    );
 
-      return res.status(200).json(result.data);
-    } catch (error) {
-      if (error.code === "TRIAGE_OUTPUT_INVALID") {
-        return res.status(422).json({
-          error: "Model output validation failed",
-          message:
-            "The model could not produce a valid triage response after one repair attempt.",
-        });
-      }
-
-      console.error(
-        "Triage model call failed:",
-        error.message
-      );
-
-      return res.status(502).json({
-        error: "LLM provider request failed",
+    return res.status(200).json(result.data);
+  } catch (error) {
+    // Model responded, but output remained invalid
+    // even after one repair attempt.
+    if (error.code === "TRIAGE_OUTPUT_INVALID") {
+      return res.status(422).json({
+        error: "Model output validation failed",
+        message:
+          "The model could not produce a valid triage response after one repair attempt.",
       });
     }
+
+    // Model/provider exceeded our configured timeout.
+    if (error.code === "LLM_TIMEOUT") {
+      return res.status(504).json({
+        error: "LLM provider timed out",
+        message:
+          "The model did not respond within the configured timeout.",
+      });
+    }
+
+    // Authentication errors must not be retried.
+    if (error.status === 401) {
+      return res.status(502).json({
+        error: "LLM provider authentication failed",
+      });
+    }
+
+    console.error(
+      "Triage model call failed:",
+      error.message
+    );
+
+    return res.status(502).json({
+      error: "LLM provider request failed",
+    });
+  }
 });
 
 module.exports = router;
