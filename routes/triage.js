@@ -1,4 +1,5 @@
 const express = require("express");
+const { triageMessage } = require("../llm/triageService");
 
 const {
   triageInputSchema,
@@ -43,10 +44,21 @@ router.post("/", async (req, res) => {
     return res.status(200).json(outputResult.data);
   }
 
-  // Real LLM integration comes in Stage 2.
-  return res.status(503).json({
-    error: "LLM integration is not enabled yet",
-  });
+    try {
+      const rawModelOutput = await triageMessage(
+        inputResult.data.text
+      );
+
+      return res.status(200).json({
+        raw_model_output: rawModelOutput,
+      });
+    } catch (error) {
+      console.error("Triage model call failed:", error.message);
+
+      return res.status(502).json({
+        error: "LLM provider request failed",
+      });
+    }
 });
 
 module.exports = router;
