@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "text": "I was charged twice for my subscription.",
+    "expected": {
+      "category": "billing",
+      "urgency": "normal",
+      "suggested_team": "billing"
+    }
+  },
+  {
+    "id": 2,
+    "text": "The application crashes every time I try to upload a PDF.",
+    "expected": {
+      "category": "bug",
+      "urgency": "high",
+      "suggested_team": "engineering"
+    }
+  },
+  {
+    "id": 3,
+    "text": "Please add dark mode to the dashboard.",
+    "expected": {
+      "category": "feature",
+      "urgency": "normal",
+      "suggested_team": "product"
+    }
+  },
+  {
+    "id": 4,
+    "text": "I cannot log into my account after changing my password.",
+    "expected": {
+      "category": "account",
+      "urgency": "high",
+      "suggested_team": "support"
+    }
+  },
+  {
+    "id": 5,
+    "text": "Can you send me another copy of my latest invoice?",
+    "expected": {
+      "category": "billing",
+      "urgency": "normal",
+      "suggested_team": "billing"
+    }
+  },
+  {
+    "id": 6,
+    "text": "The export button sometimes does nothing when I click it.",
+    "expected": {
+      "category": "bug",
+      "urgency": "normal",
+      "suggested_team": "engineering"
+    }
+  },
+  {
+    "id": 7,
+    "text": "It would be useful if users could filter reports by date.",
+    "expected": {
+      "category": "feature",
+      "urgency": "normal",
+      "suggested_team": "product"
+    }
+  },
+  {
+    "id": 8,
+    "text": "Hi, can somebody help me?",
+    "expected": {
+      "category": "other",
+      "urgency": "normal",
+      "suggested_team": "support"
+    }
+  }
+]

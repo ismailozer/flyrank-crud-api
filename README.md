@@ -261,10 +261,107 @@ Example response:
 }
 ```
 
-At this stage, no real LLM call is performed when `LLM_STUB=1`.
+When `LLM_STUB=1`, the endpoint uses a deterministic local stub and no external
+LLM request is made.
+
+When `LLM_STUB=0` and `LLM_ENABLED=true`, the endpoint sends the request to the
+configured LLM provider and validates the returned model output before exposing
+it through the API.
 
 The purpose of stub mode is to establish and verify the API contract before
 connecting real model output to the endpoint.
+
+## LLM Reliability and Safety
+
+The `/triage` endpoint treats model output as untrusted external data.
+
+The response pipeline is:
+
+1. Validate the incoming request.
+2. Send the versioned prompt to the configured LLM.
+3. Extract and parse the returned JSON.
+4. Validate the result against the Zod output schema.
+5. If validation fails, attempt one repair.
+6. If the repaired output is still invalid, return HTTP `422` and quarantine
+   the invalid response for debugging.
+
+Raw unvalidated model output is never returned directly to the API caller.
+
+### Provider resilience
+
+LLM calls include:
+
+- 30-second configurable timeout
+- Retries only for transient failures
+- Retry support for timeouts, HTTP `408`, `429`, and `5xx`
+- No retries for permanent client errors such as `401`
+- Exponential backoff with jitter
+- Per-call token, duration, model, repair, attempt, cost, and status logging
+- `LLM_ENABLED` kill switch
+- Explicit application-controlled retries with SDK retries disabled
+
+### AI-specific HTTP responses
+
+| Status | Meaning |
+|---:|---|
+| 400 | Invalid request input |
+| 422 | Model output remained invalid after one repair attempt |
+| 502 | LLM provider or authentication failure |
+| 503 | LLM integration disabled through the kill switch |
+| 504 | LLM provider timed out after retries |
+
+## AI Triage Evaluation
+
+A small hand-labeled evaluation set is included under `evals/` to provide a repeatable baseline for the AI triage endpoint.
+
+The evaluation currently focuses on the primary decision field: `category`.
+
+### Evaluation Setup
+
+* **Endpoint:** `POST /triage`
+* **Prompt version:** `triage-v1`
+* **Configured model:** `openrouter/free`
+* **Evaluation cases:** 8
+* **Key field:** `category`
+* **Evaluation date:** 2026-08-14
+
+The test set includes examples covering:
+
+* Billing issues
+* Application bugs
+* Feature requests
+* Account problems
+* Ambiguous support requests
+
+At least one case intentionally contains insufficient information to verify the prompt's **"when unsure"** behavior.
+
+### Current Result
+
+```text
+Score: 8/8
+Accuracy: 100.0%
+```
+
+All eight hand-labeled cases matched the expected category.
+
+This score should be treated as a small regression baseline rather than a claim of general model accuracy. Future prompt or model changes can be evaluated against the same cases to help detect regressions.
+
+### Running the Evaluation
+
+First, start the API:
+
+```bash
+npm start
+```
+
+Then, open another terminal and run:
+
+```bash
+node evals/run-eval.js
+```
+
+The evaluation script sends every test case to the real `/triage` endpoint and reports `PASS` or `FAIL` depending on whether the returned category matches the expected category.
+
 
 ## Authentication
 
@@ -530,6 +627,10 @@ Sending an invalid `done` value during an update returns `400 Bad Request`:
 | 401 | Authentication failed or a valid token was not provided |
 | 404 | The requested resource was not found |
 | 500 | An unexpected server error occurred |
+| 422 | LLM output failed validation after repair |
+| 502 | LLM provider request failed |
+| 503 | LLM integration is disabled |
+| 504 | LLM provider timed out |
 
 ## PostgreSQL development container
 
@@ -614,6 +715,15 @@ DOCKER_DATABASE_URL=postgres://postgres:dev@db:5432/tasks
 
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_publishable_key
+
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=your_llm_api_key
+LLM_MODEL=openrouter/free
+
+LLM_ENABLED=true
+LLM_STUB=0
+LLM_TIMEOUT_MS=30000
+LLM_MAX_RETRIES=3
 ```
 
 `DATABASE_URL` is used when the Node.js application runs directly on the host
@@ -624,6 +734,15 @@ where the PostgreSQL service is available with the hostname `db`.
 
 `SUPABASE_URL` and `SUPABASE_KEY` are used to connect the application to
 Supabase Auth.
+
+`LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` configure the external model provider.
+
+`LLM_ENABLED=false` acts as a global kill switch and prevents model calls.
+
+`LLM_STUB=1` enables deterministic development mode without contacting the provider.
+
+`LLM_TIMEOUT_MS` controls the provider request timeout, while
+`LLM_MAX_RETRIES` controls retries for transient failures.
 
 The real `.env` file is ignored by Git and must never be committed.
 
