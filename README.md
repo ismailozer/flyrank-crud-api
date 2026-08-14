@@ -20,6 +20,8 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - Swagger UI with Bearer authentication
 - Parameterized PostgreSQL queries
 - Data that survives container restarts
+- Durable PostgreSQL-backed background jobs
+- Background job retries and idempotency
 
 ## Technologies
 
@@ -130,6 +132,9 @@ Each task has the following structure:
 | PUT | `/tasks/:id` | No | Updates a task |
 | DELETE | `/tasks/:id` | No | Deletes a task |
 | POST | `/triage` | No | Classifies a support message into a validated triage result |
+| POST | `/triage-jobs` | No | Queues an AI triage background job and returns `202 Accepted` |
+| GET | `/triage-jobs/:id` | No | Returns the current background job status and result |
+| GET | `/triage-jobs/failures` | No | Lists permanently failed background jobs |
 
 ## AI Triage Endpoint
 
@@ -362,6 +367,49 @@ node evals/run-eval.js
 
 The evaluation script sends every test case to the real `/triage` endpoint and reports `PASS` or `FAIL` depending on whether the returned category matches the expected category.
 
+## Background AI Jobs
+
+The AI triage workflow can also run as a durable background job.
+
+`POST /triage-jobs` stores the request in PostgreSQL and immediately returns `202 Accepted` with a job ID instead of waiting for the LLM response.
+
+### Start the Worker
+
+A separate worker processes queued jobs:
+
+```bash
+node workers/triageWorker.js
+```
+
+### Job Lifecycle
+
+Jobs move through the following states:
+
+```text
+queued -> running -> completed
+```
+
+Failed jobs are retried up to three times before being marked as `failed`.
+
+### Features
+
+The background job implementation includes:
+
+- PostgreSQL-backed job persistence
+- Idempotency through the `Idempotency-Key` header
+- Retry tracking with `attempt_count`
+- Concurrent-safe job claiming with `FOR UPDATE SKIP LOCKED`
+- Job status and failure inspection endpoints
+
+### Example Accepted Response
+
+```json
+{
+  "job_id": "87a1b6c3-207b-40e8-b879-a989506a359f",
+  "status": "queued",
+  "status_url": "/triage-jobs/87a1b6c3-207b-40e8-b879-a989506a359f"
+}
+```
 
 ## Authentication
 
@@ -631,6 +679,7 @@ Sending an invalid `done` value during an update returns `400 Bad Request`:
 | 502 | LLM provider request failed |
 | 503 | LLM integration is disabled |
 | 504 | LLM provider timed out |
+| 202 | Background job accepted for asynchronous processing |
 
 ## PostgreSQL development container
 
