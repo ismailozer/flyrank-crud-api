@@ -20,6 +20,8 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - Swagger UI with Bearer authentication
 - Parameterized PostgreSQL queries
 - Data that survives container restarts
+- Durable PostgreSQL-backed background jobs
+- Background job retries and idempotency
 
 ## Technologies
 
@@ -129,6 +131,285 @@ Each task has the following structure:
 | POST | `/tasks` | No | Creates a new task |
 | PUT | `/tasks/:id` | No | Updates a task |
 | DELETE | `/tasks/:id` | No | Deletes a task |
+| POST | `/triage` | No | Classifies a support message into a validated triage result |
+| POST | `/triage-jobs` | No | Queues an AI triage background job and returns `202 Accepted` |
+| GET | `/triage-jobs/:id` | No | Returns the current background job status and result |
+| GET | `/triage-jobs/failures` | No | Lists permanently failed background jobs |
+
+## AI Triage Endpoint
+
+The API includes a `POST /triage` endpoint that classifies an incoming support
+message into a fixed and validated JSON structure.
+
+The endpoint validates the request before any AI-related work is performed.
+
+During Stage 1 development, the real model call can be disabled by setting:
+
+```env
+LLM_STUB=1
+```
+
+When stub mode is enabled, the endpoint returns a predefined response that still
+passes the same output schema that will later be used for real LLM responses.
+
+This allows the API contract and validation logic to be tested without making
+any model calls.
+
+### Triage input
+
+The endpoint accepts a JSON body in the following format:
+
+```json
+{
+  "text": "I was charged twice for my subscription."
+}
+```
+
+The `text` field:
+
+- must be a string
+- cannot be empty
+- must contain at most 2000 characters
+
+### Valid triage request
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{"text":"I was charged twice for my subscription."}'
+```
+
+Expected status:
+
+```text
+200 OK
+```
+
+Example response while `LLM_STUB=1`:
+
+```json
+{
+  "category": "billing",
+  "urgency": "normal",
+  "suggested_team": "billing",
+  "confidence": 0.95,
+  "reason": "Stub response used for development."
+}
+```
+
+The response is validated against a fixed output schema.
+
+Allowed `category` values:
+
+- `billing`
+- `bug`
+- `feature`
+- `account`
+- `other`
+
+Allowed `urgency` values:
+
+- `low`
+- `normal`
+- `high`
+
+Allowed `suggested_team` values:
+
+- `billing`
+- `engineering`
+- `product`
+- `support`
+
+The `confidence` value must be between `0.0` and `1.0`.
+
+### Invalid triage request
+
+A request without the required `text` field:
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+returns:
+
+```text
+400 Bad Request
+```
+
+Example response:
+
+```json
+{
+  "error": "Invalid request",
+  "field": "text",
+  "message": "Invalid input: expected string, received undefined"
+}
+```
+
+An empty message is also rejected:
+
+```bash
+curl -i -X POST http://localhost:3000/triage \
+  -H "Content-Type: application/json" \
+  -d '{"text":""}'
+```
+
+Example response:
+
+```json
+{
+  "error": "Invalid request",
+  "field": "text",
+  "message": "text cannot be empty"
+}
+```
+
+When `LLM_STUB=1`, the endpoint uses a deterministic local stub and no external
+LLM request is made.
+
+When `LLM_STUB=0` and `LLM_ENABLED=true`, the endpoint sends the request to the
+configured LLM provider and validates the returned model output before exposing
+it through the API.
+
+The purpose of stub mode is to establish and verify the API contract before
+connecting real model output to the endpoint.
+
+## LLM Reliability and Safety
+
+The `/triage` endpoint treats model output as untrusted external data.
+
+The response pipeline is:
+
+1. Validate the incoming request.
+2. Send the versioned prompt to the configured LLM.
+3. Extract and parse the returned JSON.
+4. Validate the result against the Zod output schema.
+5. If validation fails, attempt one repair.
+6. If the repaired output is still invalid, return HTTP `422` and quarantine
+   the invalid response for debugging.
+
+Raw unvalidated model output is never returned directly to the API caller.
+
+### Provider resilience
+
+LLM calls include:
+
+- 30-second configurable timeout
+- Retries only for transient failures
+- Retry support for timeouts, HTTP `408`, `429`, and `5xx`
+- No retries for permanent client errors such as `401`
+- Exponential backoff with jitter
+- Per-call token, duration, model, repair, attempt, cost, and status logging
+- `LLM_ENABLED` kill switch
+- Explicit application-controlled retries with SDK retries disabled
+
+### AI-specific HTTP responses
+
+| Status | Meaning |
+|---:|---|
+| 400 | Invalid request input |
+| 422 | Model output remained invalid after one repair attempt |
+| 502 | LLM provider or authentication failure |
+| 503 | LLM integration disabled through the kill switch |
+| 504 | LLM provider timed out after retries |
+
+## AI Triage Evaluation
+
+A small hand-labeled evaluation set is included under `evals/` to provide a repeatable baseline for the AI triage endpoint.
+
+The evaluation currently focuses on the primary decision field: `category`.
+
+### Evaluation Setup
+
+* **Endpoint:** `POST /triage`
+* **Prompt version:** `triage-v1`
+* **Configured model:** `openrouter/free`
+* **Evaluation cases:** 8
+* **Key field:** `category`
+* **Evaluation date:** 2026-08-14
+
+The test set includes examples covering:
+
+* Billing issues
+* Application bugs
+* Feature requests
+* Account problems
+* Ambiguous support requests
+
+At least one case intentionally contains insufficient information to verify the prompt's **"when unsure"** behavior.
+
+### Current Result
+
+```text
+Score: 8/8
+Accuracy: 100.0%
+```
+
+All eight hand-labeled cases matched the expected category.
+
+This score should be treated as a small regression baseline rather than a claim of general model accuracy. Future prompt or model changes can be evaluated against the same cases to help detect regressions.
+
+### Running the Evaluation
+
+First, start the API:
+
+```bash
+npm start
+```
+
+Then, open another terminal and run:
+
+```bash
+node evals/run-eval.js
+```
+
+The evaluation script sends every test case to the real `/triage` endpoint and reports `PASS` or `FAIL` depending on whether the returned category matches the expected category.
+
+## Background AI Jobs
+
+The AI triage workflow can also run as a durable background job.
+
+`POST /triage-jobs` stores the request in PostgreSQL and immediately returns `202 Accepted` with a job ID instead of waiting for the LLM response.
+
+### Start the Worker
+
+A separate worker processes queued jobs:
+
+```bash
+node workers/triageWorker.js
+```
+
+### Job Lifecycle
+
+Jobs move through the following states:
+
+```text
+queued -> running -> completed
+```
+
+Failed jobs are retried up to three times before being marked as `failed`.
+
+### Features
+
+The background job implementation includes:
+
+- PostgreSQL-backed job persistence
+- Idempotency through the `Idempotency-Key` header
+- Retry tracking with `attempt_count`
+- Concurrent-safe job claiming with `FOR UPDATE SKIP LOCKED`
+- Job status and failure inspection endpoints
+
+### Example Accepted Response
+
+```json
+{
+  "job_id": "87a1b6c3-207b-40e8-b879-a989506a359f",
+  "status": "queued",
+  "status_url": "/triage-jobs/87a1b6c3-207b-40e8-b879-a989506a359f"
+}
+```
 
 ## Authentication
 
@@ -394,6 +675,11 @@ Sending an invalid `done` value during an update returns `400 Bad Request`:
 | 401 | Authentication failed or a valid token was not provided |
 | 404 | The requested resource was not found |
 | 500 | An unexpected server error occurred |
+| 422 | LLM output failed validation after repair |
+| 502 | LLM provider request failed |
+| 503 | LLM integration is disabled |
+| 504 | LLM provider timed out |
+| 202 | Background job accepted for asynchronous processing |
 
 ## PostgreSQL development container
 
@@ -478,6 +764,15 @@ DOCKER_DATABASE_URL=postgres://postgres:dev@db:5432/tasks
 
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_publishable_key
+
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=your_llm_api_key
+LLM_MODEL=openrouter/free
+
+LLM_ENABLED=true
+LLM_STUB=0
+LLM_TIMEOUT_MS=30000
+LLM_MAX_RETRIES=3
 ```
 
 `DATABASE_URL` is used when the Node.js application runs directly on the host
@@ -488,6 +783,15 @@ where the PostgreSQL service is available with the hostname `db`.
 
 `SUPABASE_URL` and `SUPABASE_KEY` are used to connect the application to
 Supabase Auth.
+
+`LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` configure the external model provider.
+
+`LLM_ENABLED=false` acts as a global kill switch and prevents model calls.
+
+`LLM_STUB=1` enables deterministic development mode without contacting the provider.
+
+`LLM_TIMEOUT_MS` controls the provider request timeout, while
+`LLM_MAX_RETRIES` controls retries for transient failures.
 
 The real `.env` file is ignored by Git and must never be committed.
 

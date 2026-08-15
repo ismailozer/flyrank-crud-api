@@ -4,12 +4,17 @@ const openapi = require('./openapi.json');
 const postgresRepository = require('./postgresRepository');
 const supabase = require('./supabaseClient');
 const requireAuth = require('./authMiddleware');
+const triageRouter = require('./routes/triage');
+const triageJobsRouter = require("./routes/triageJobs");
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
+app.use('/triage', triageRouter);
+app.use("/triage-jobs", triageJobsRouter);
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
+
 
 
 function parseTaskId(value) {
