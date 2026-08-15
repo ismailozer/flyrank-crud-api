@@ -71,7 +71,7 @@ async function runWorker() {
   while (!shuttingDown) {
     try {
       const job =
-        await claimNextQueuedJob();
+        await claimNextQueuedJob("triage");
 
       if (!job) {
         await sleep(POLL_INTERVAL_MS);

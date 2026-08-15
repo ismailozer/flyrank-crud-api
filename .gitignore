@@ -8,3 +8,6 @@ tasks.db-shm
 
 # LLM runtime quarantine logs
 logs/*.jsonl
+
+# generated reports
+reports/*.pdf

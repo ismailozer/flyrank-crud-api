@@ -77,46 +77,58 @@ async function getJobByIdempotencyKey(idempotencyKey) {
   return result.rows[0] || null;
 }
 
-async function claimNextQueuedJob() {
+async function claimNextQueuedJob(
+  jobType = null
+) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const selectResult = await client.query(`
+    const selectQuery = `
       SELECT *
       FROM background_jobs
       WHERE status = 'queued'
-        AND attempt_count < max_attempts
+        AND (
+          $1::varchar IS NULL
+          OR job_type = $1
+        )
       ORDER BY created_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1;
-    `);
+    `;
 
-    if (selectResult.rows.length === 0) {
+    const selected = await client.query(
+      selectQuery,
+      [jobType]
+    );
+
+    if (selected.rows.length === 0) {
       await client.query("COMMIT");
       return null;
     }
 
-    const job = selectResult.rows[0];
+    const job = selected.rows[0];
 
-    const updateResult = await client.query(
-      `
+    const updateQuery = `
       UPDATE background_jobs
       SET
         status = 'running',
         attempt_count = attempt_count + 1,
-        started_at = COALESCE(started_at, NOW()),
+        started_at = NOW(),
         updated_at = NOW()
       WHERE id = $1
       RETURNING *;
-      `,
+    `;
+
+    const updated = await client.query(
+      updateQuery,
       [job.id]
     );
 
     await client.query("COMMIT");
 
-    return updateResult.rows[0];
+    return updated.rows[0];
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
