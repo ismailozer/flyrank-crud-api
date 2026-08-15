@@ -22,6 +22,10 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - Data that survives container restarts
 - Durable PostgreSQL-backed background jobs
 - Background job retries and idempotency
+- Background PDF report generation
+- PostgreSQL task aggregation for reports
+- PDF report download endpoints
+- Idempotent report generation
 
 ## Technologies
 
@@ -36,6 +40,7 @@ The project was built with Node.js and Express as part of the FlyRank Backend AI
 - Docker Compose
 - Swagger UI
 - OpenAPI 3.0
+- PDFKit
 
 ## Installation
 
@@ -135,6 +140,9 @@ Each task has the following structure:
 | POST | `/triage-jobs` | No | Queues an AI triage background job and returns `202 Accepted` |
 | GET | `/triage-jobs/:id` | No | Returns the current background job status and result |
 | GET | `/triage-jobs/failures` | No | Lists permanently failed background jobs |
+| POST | `/reports` | No | Queues a PDF report generation job and returns `202 Accepted` |
+| GET | `/reports/:id` | No | Returns the report job status and generated PDF information |
+| GET | `/reports/files/:fileName` | No | Downloads a generated PDF report |
 
 ## AI Triage Endpoint
 
@@ -410,6 +418,106 @@ The background job implementation includes:
   "status_url": "/triage-jobs/87a1b6c3-207b-40e8-b879-a989506a359f"
 }
 ```
+
+## PDF Report Generator
+
+The API can generate task summary reports as durable background jobs.
+
+Report data is queried from PostgreSQL and includes:
+
+- total task count
+- completed task count
+- pending task count
+- completion rate
+- task details and statuses
+
+PDF files are generated with PDFKit and stored in the local `reports/` directory.
+
+### Generate a Report
+
+Create a new report job:
+
+```http
+POST /reports
+```
+
+The endpoint immediately returns `202 Accepted`:
+
+```json
+{
+  "job_id": "3299b9b9-0e1a-4f7a-ac62-95cf6cbc5a9f",
+  "status": "queued",
+  "status_url": "/reports/3299b9b9-0e1a-4f7a-ac62-95cf6cbc5a9f"
+}
+```
+
+An optional `Idempotency-Key` header prevents duplicate report jobs.
+
+### Start the Report Worker
+
+Report generation is processed by a separate worker:
+
+```bash
+node workers/reportWorker.js
+```
+
+The worker:
+
+```text
+queries PostgreSQL
+        ↓
+builds the report data
+        ↓
+generates the PDF
+        ↓
+stores the file
+        ↓
+marks the job as completed
+```
+
+### Check Report Status
+
+```http
+GET /reports/:id
+```
+
+A completed job returns report metadata and a download URL:
+
+```json
+{
+  "job_id": "3299b9b9-0e1a-4f7a-ac62-95cf6cbc5a9f",
+  "status": "completed",
+  "attempt_count": 1,
+  "max_attempts": 3,
+  "result": {
+    "report_type": "task-report",
+    "download_url": "/reports/files/task-report-3299b9b9-0e1a-4f7a-ac62-95cf6cbc5a9f.pdf"
+  }
+}
+```
+
+### Download the PDF
+
+Generated reports can be downloaded through:
+
+```http
+GET /reports/files/:fileName
+```
+
+### Reliability
+
+Report generation uses the same durable PostgreSQL-backed job system as AI triage jobs.
+
+It includes:
+
+- background execution
+- up to three attempts
+- permanent failure tracking
+- idempotent requests
+- PostgreSQL job persistence
+- downloadable PDF artifacts
+
+A forced failure test confirmed that a report job was retried three times before being marked as permanently failed.
 
 ## Authentication
 

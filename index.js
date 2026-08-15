@@ -6,14 +6,27 @@ const supabase = require('./supabaseClient');
 const requireAuth = require('./authMiddleware');
 const triageRouter = require('./routes/triage');
 const triageJobsRouter = require("./routes/triageJobs");
+const path = require("path");
+const reportsRouter =
+  require("./routes/reports");
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
+app.use(
+  "/reports/files",
+  express.static(
+    path.join(__dirname, "reports")
+  )
+);
 app.use('/triage', triageRouter);
 app.use("/triage-jobs", triageJobsRouter);
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
+app.use(
+  "/reports",
+  reportsRouter
+);
 
 
 
